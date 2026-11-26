@@ -54,6 +54,12 @@ const pool = connectionString
     })
   : null;
 
+if (pool) {
+  pool.on('error', (err) => {
+    console.error('Unexpected error on idle PostgreSQL client:', err?.message || err);
+  });
+}
+
 let dbReady = false;
 let dbError = connectionString ? null : 'DATABASE_URL environment variable is not configured.';
 
@@ -1113,38 +1119,73 @@ app.get('/api/projects/my', requireFirebaseAuth, requireDb, async (req, res) => 
 app.get('/api/projects/open', requireFirebaseAuth, requireDb, async (req, res) => {
   try {
     const userRes = await pool.query(
-      'SELECT id, role FROM users WHERE LOWER(email) = LOWER($1)',
+      `SELECT u.id, u.role, u.city AS user_city, u.state AS user_state,
+              c.id AS contractor_id, c.city AS contractor_city, c.state AS contractor_state
+       FROM users u
+       LEFT JOIN contractors c ON c.user_id = u.id
+       WHERE LOWER(u.email) = LOWER($1)`,
       [req.auth.email]
     );
     if (userRes.rows.length === 0 || userRes.rows[0].role !== 'CONTRACTOR') {
       return sendError(res, 403, 'Only contractors can browse open projects.');
     }
 
-    const rawCity = String(req.query.city || '').trim();
-    const rawState = String(req.query.state || '').trim();
-    const cityMeta = rawCity ? await resolveCityMetadata(pool, rawCity).catch(() => null) : null;
+    const contractor = userRes.rows[0];
+    const contractorId = contractor.contractor_id ? Number(contractor.contractor_id) : null;
+    const profileCity = (contractor.contractor_city || contractor.user_city || '').trim();
+    const profileState = (contractor.contractor_state || contractor.user_state || '').trim();
+
+    const cityMeta = profileCity
+      ? await resolveCityMetadata(pool, profileCity, profileState).catch(() => null)
+      : null;
+
+    const cityCode = cityMeta?.code || profileCity;
+    const cityName = cityMeta?.name || profileCity;
+    const resolvedState = profileState || cityMeta?.state || '';
+
     let projRes;
-    if (cityMeta) {
+    if (profileCity && resolvedState) {
       projRes = await pool.query(
         `SELECT p.*, u.name AS owner_name, cm.name AS city_name, cm.tier AS city_tier, COALESCE(p.state, cm.state) AS resolved_state
          FROM projects p
          JOIN users u ON u.id = p.user_id
          LEFT JOIN cities cm ON UPPER(cm.code) = UPPER(p.city) OR LOWER(cm.name) = LOWER(p.city)
-         WHERE UPPER(p.city) = UPPER($1) OR LOWER(p.city) = LOWER($2)
+         WHERE (UPPER(p.city) = UPPER($1) OR LOWER(p.city) = LOWER($2) OR LOWER(COALESCE(cm.name, '')) = LOWER($2))
+           AND LOWER(COALESCE(p.state, cm.state, '')) = LOWER($3)
+           AND p.user_id <> $4
+           AND ($5::bigint IS NULL OR p.id NOT IN (SELECT project_id FROM contractor_bids WHERE contractor_id = $5))
+           AND p.id NOT IN (SELECT cb.project_id FROM contractor_bids cb JOIN contractors c ON c.id = cb.contractor_id WHERE c.user_id = $4)
          ORDER BY p.created_at DESC
-         LIMIT 50`,
-        [cityMeta.code, cityMeta.name]
+         LIMIT 100`,
+        [cityCode, cityName, resolvedState, contractor.id, contractorId]
       );
-    } else if (rawState) {
+    } else if (profileCity) {
+      projRes = await pool.query(
+        `SELECT p.*, u.name AS owner_name, cm.name AS city_name, cm.tier AS city_tier, COALESCE(p.state, cm.state) AS resolved_state
+         FROM projects p
+         JOIN users u ON u.id = p.user_id
+         LEFT JOIN cities cm ON UPPER(cm.code) = UPPER(p.city) OR LOWER(cm.name) = LOWER(p.city)
+         WHERE (UPPER(p.city) = UPPER($1) OR LOWER(p.city) = LOWER($2) OR LOWER(COALESCE(cm.name, '')) = LOWER($2))
+           AND p.user_id <> $3
+           AND ($4::bigint IS NULL OR p.id NOT IN (SELECT project_id FROM contractor_bids WHERE contractor_id = $4))
+           AND p.id NOT IN (SELECT cb.project_id FROM contractor_bids cb JOIN contractors c ON c.id = cb.contractor_id WHERE c.user_id = $3)
+         ORDER BY p.created_at DESC
+         LIMIT 100`,
+        [cityCode, cityName, contractor.id, contractorId]
+      );
+    } else if (resolvedState) {
       projRes = await pool.query(
         `SELECT p.*, u.name AS owner_name, cm.name AS city_name, cm.tier AS city_tier, COALESCE(p.state, cm.state) AS resolved_state
          FROM projects p
          JOIN users u ON u.id = p.user_id
          LEFT JOIN cities cm ON UPPER(cm.code) = UPPER(p.city) OR LOWER(cm.name) = LOWER(p.city)
          WHERE LOWER(COALESCE(p.state, cm.state, '')) = LOWER($1)
+           AND p.user_id <> $2
+           AND ($3::bigint IS NULL OR p.id NOT IN (SELECT project_id FROM contractor_bids WHERE contractor_id = $3))
+           AND p.id NOT IN (SELECT cb.project_id FROM contractor_bids cb JOIN contractors c ON c.id = cb.contractor_id WHERE c.user_id = $2)
          ORDER BY p.created_at DESC
-         LIMIT 50`,
-        [rawState]
+         LIMIT 100`,
+        [resolvedState, contractor.id, contractorId]
       );
     } else {
       projRes = await pool.query(
@@ -1152,8 +1193,12 @@ app.get('/api/projects/open', requireFirebaseAuth, requireDb, async (req, res) =
          FROM projects p
          JOIN users u ON u.id = p.user_id
          LEFT JOIN cities cm ON UPPER(cm.code) = UPPER(p.city) OR LOWER(cm.name) = LOWER(p.city)
+         WHERE p.user_id <> $1
+           AND ($2::bigint IS NULL OR p.id NOT IN (SELECT project_id FROM contractor_bids WHERE contractor_id = $2))
+           AND p.id NOT IN (SELECT cb.project_id FROM contractor_bids cb JOIN contractors c ON c.id = cb.contractor_id WHERE c.user_id = $1)
          ORDER BY p.created_at DESC
-         LIMIT 50`
+         LIMIT 100`,
+        [contractor.id, contractorId]
       );
     }
 
@@ -1318,13 +1363,31 @@ app.post('/api/contractors/bid', requireFirebaseAuth, requireDb, async (req, res
     const contractor = contractorRes.rows[0];
 
     const projRes = await pool.query(
-      'SELECT id, city, state, pincode, locality FROM projects WHERE id = $1',
+      'SELECT id, user_id, city, state, pincode, locality FROM projects WHERE id = $1',
       [Number(projectId)]
     );
     if (projRes.rows.length === 0) {
       return sendError(res, 404, 'Project not found.');
     }
     const proj = projRes.rows[0];
+
+    if (Number(proj.user_id) === Number(callerUser.id)) {
+      return sendError(res, 400, 'You cannot bid on your own project.');
+    }
+
+    const existingBidRes = await pool.query(
+      `SELECT id FROM contractor_bids
+       WHERE project_id = $1
+         AND (contractor_id = $2 OR contractor_id IN (SELECT id FROM contractors WHERE user_id = $3))`,
+      [Number(projectId), contractor.id, callerUser.id]
+    );
+    if (existingBidRes.rows.length > 0) {
+      return sendError(
+        res,
+        400,
+        'You have already submitted a bid for this project. Please edit your submitted bid in the My Bids tab.'
+      );
+    }
 
     const projCityMeta = await resolveCityMetadata(pool, proj.city, proj.state).catch(() => null);
     const contractorCityMeta = await resolveCityMetadata(
@@ -1393,6 +1456,94 @@ app.post('/api/contractors/bid', requireFirebaseAuth, requireDb, async (req, res
   } catch (err) {
     console.error('Submit bid error:', err);
     return sendError(res, 500, 'Failed to submit bid.');
+  }
+});
+
+app.put('/api/contractors/bids/:id', requireFirebaseAuth, requireDb, async (req, res) => {
+  const bidId = Number(req.params.id);
+  if (!Number.isInteger(bidId) || bidId <= 0) {
+    return sendError(res, 400, 'Invalid bid ID.');
+  }
+
+  const { bidAmount, description, estimatedDays } = req.body || {};
+
+  if (!Number.isFinite(Number(bidAmount)) || Number(bidAmount) < 10000) {
+    return sendError(res, 400, 'Bid amount must be at least ₹10,000.');
+  }
+  const cleanDesc = String(description || '').trim();
+  if (cleanDesc.length < 20 || cleanDesc.length > 1000) {
+    return sendError(res, 400, 'Scope description must be between 20 and 1000 characters.');
+  }
+  if (!Number.isInteger(Number(estimatedDays)) || Number(estimatedDays) < 1 || Number(estimatedDays) > 3650) {
+    return sendError(res, 400, 'Estimated days must be between 1 and 3650.');
+  }
+
+  try {
+    const userRes = await pool.query(
+      'SELECT id, role FROM users WHERE LOWER(email) = LOWER($1)',
+      [req.auth.email]
+    );
+    if (userRes.rows.length === 0) {
+      return sendError(res, 403, 'User profile not found.');
+    }
+    if (userRes.rows[0].role !== 'CONTRACTOR') {
+      return sendError(res, 403, 'Only contractors can update bids.');
+    }
+    const callerUser = userRes.rows[0];
+
+    const contractorRes = await pool.query(
+      'SELECT id FROM contractors WHERE user_id = $1',
+      [callerUser.id]
+    );
+    if (contractorRes.rows.length === 0) {
+      return sendError(res, 400, 'Contractor profile not found.');
+    }
+    const contractor = contractorRes.rows[0];
+
+    const bidRes = await pool.query(
+      'SELECT id, contractor_id, project_id FROM contractor_bids WHERE id = $1',
+      [bidId]
+    );
+    if (bidRes.rows.length === 0) {
+      return sendError(res, 404, 'Bid not found.');
+    }
+    const existingBid = bidRes.rows[0];
+    if (Number(existingBid.contractor_id) !== Number(contractor.id)) {
+      return sendError(res, 403, 'You do not have permission to edit this bid.');
+    }
+
+    await pool.query(
+      `UPDATE contractor_bids
+       SET bid_amount = $1, description = $2, estimated_days = $3
+       WHERE id = $4`,
+      [Number(bidAmount), cleanDesc, Number(estimatedDays), bidId]
+    );
+
+    const joinedRes = await pool.query(
+      `SELECT b.*, c.company_name, c.rating AS contractor_rating, c.experience_years,
+              u.name AS contractor_name, p.project_name,
+              COALESCE(NULLIF(b.project_city, ''), pcm.name, p.city) AS resolved_project_city,
+              COALESCE(NULLIF(b.project_state, ''), p.state, pcm.state) AS resolved_project_state,
+              COALESCE(NULLIF(b.project_pincode, ''), p.pincode) AS resolved_project_pincode,
+              COALESCE(NULLIF(b.project_locality, ''), p.locality) AS resolved_project_locality,
+              COALESCE(NULLIF(b.contractor_city, ''), ccm.name, c.city, u.city) AS resolved_contractor_city,
+              COALESCE(NULLIF(b.contractor_state, ''), c.state, u.state, ccm.state) AS resolved_contractor_state,
+              COALESCE(NULLIF(b.contractor_pincode, ''), c.pincode, u.pincode) AS resolved_contractor_pincode,
+              COALESCE(NULLIF(b.contractor_locality, ''), c.locality, u.locality) AS resolved_contractor_locality
+       FROM contractor_bids b
+       JOIN contractors c ON c.id = b.contractor_id
+       JOIN users u ON u.id = c.user_id
+       JOIN projects p ON p.id = b.project_id
+       LEFT JOIN cities pcm ON UPPER(pcm.code) = UPPER(p.city) OR LOWER(pcm.name) = LOWER(p.city)
+       LEFT JOIN cities ccm ON UPPER(ccm.code) = UPPER(c.city) OR LOWER(ccm.name) = LOWER(c.city)
+       WHERE b.id = $1`,
+      [bidId]
+    );
+
+    return res.json(mapBidRow(joinedRes.rows[0]));
+  } catch (err) {
+    console.error('Update bid error:', err);
+    return sendError(res, 500, 'Failed to update bid.');
   }
 });
 
@@ -1480,9 +1631,27 @@ app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) {
     return sendError(res, 404, 'Endpoint not found.');
   }
-  res.sendFile(path.join(buildDir, 'index.html'));
+  const indexPath = path.join(buildDir, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  return res.status(200).send('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Brikko</title></head><body><div id="root">Loading Brikko...</div></body></html>');
 });
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`Brikko server running on http://${HOST}:${PORT}`);
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(() => {
+    process.exit(0);
+  });
 });

@@ -3,15 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": ">=20.0.0"
-  },
   "scripts": {
     "postinstall": "npm --prefix frontend install --legacy-peer-deps",
-    "build:frontend": "node -e \"require('fs').copyFileSync('firebase-applet-config.json', 'frontend/src/firebase-applet-config.json')\" && BROWSER=none npm --prefix frontend run build",
+    "build:frontend": "node -e \"const fs = require('fs'); if (fs.existsSync('firebase-applet-config.json')) { fs.mkdirSync('frontend/src', { recursive: true }); fs.copyFileSync('firebase-applet-config.json', 'frontend/src/firebase-applet-config.json'); }\" && CI=false BROWSER=none npm --prefix frontend run build",
     "build": "npm run build:frontend",
-    "dev": "node -e \"import('fs').then(fs => { if (!fs.existsSync('frontend/build/index.html')) import('child_process').then(cp => cp.execSync('npm run build:frontend', { stdio: 'inherit' })); })\" && node server.js",
-    "start": "node -e \"import('fs').then(fs => { if (!fs.existsSync('frontend/build/index.html')) import('child_process').then(cp => cp.execSync('npm run build:frontend', { stdio: 'inherit' })); })\" && node server.js",
+    "gcp-build": "npm run build",
+    "dev": "node server.js",
+    "start": "node server.js",
     "lint": "node --check server.js && node --check locationMetadata.js"
   },
   "dependencies": {

@@ -57,6 +57,23 @@ export default function Login() {
     }
   };
 
+  const handleSignInClick = async () => {
+    clearAuthError();
+    if (firebaseUser) {
+      if (needsOnboarding) {
+        navigate('/signup');
+      } else if (user) {
+        navigate(user.role === 'CONTRACTOR' ? '/contractor-dashboard' : '/');
+      }
+      return;
+    }
+    try {
+      await signInWithGoogle();
+    } catch (_err) {
+      // Auth error handled by context
+    }
+  };
+
   const handleModalSubmit = async (e) => {
     e.preventDefault();
     setModalSuccess(true);
@@ -110,15 +127,15 @@ export default function Login() {
             <a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a>
             <a href="#contact" onClick={() => setMenuOpen(false)}>Contact us</a>
             <button
-              className="btn btn-sm quote-btn"
+              className="btn btn-sm"
               type="button"
               disabled={signingIn}
               onClick={() => {
                 setMenuOpen(false);
-                handleGetQuoteClick('General');
+                handleSignInClick();
               }}
             >
-              {signingIn ? <CircularProgress size={16} color="inherit" /> : 'Get quote'}
+              {signingIn ? <CircularProgress size={16} color="inherit" /> : 'Sign in'}
             </button>
           </nav>
         </div>

@@ -20,8 +20,10 @@ import {
   InputAdornment,
 } from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import EditIcon from '@mui/icons-material/Edit';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import SearchIcon from '@mui/icons-material/Search';
-import { getMyBids, submitBid } from '../api/contractor';
+import { getMyBids, submitBid, updateBid } from '../api/contractor';
 import { getOpenProjects, getOptions } from '../api/project';
 import { useAuth } from '../context/AuthContext';
 import CitySelect from '../components/CitySelect';
@@ -42,8 +44,16 @@ export default function ContractorDashboard() {
   const [cityFilter, setCityFilter] = useState('ALL');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [bidDialog, setBidDialog] = useState(false);
-  const [bidForm, setBidForm] = useState({ projectId: '', bidAmount: '', description: '', estimatedDays: '' });
+  const [editingBid, setEditingBid] = useState(null);
+  const [bidForm, setBidForm] = useState({
+    projectId: '',
+    projectName: '',
+    bidAmount: '',
+    description: '',
+    estimatedDays: '',
+  });
   const [bidError, setBidError] = useState('');
   const [bidLoading, setBidLoading] = useState(false);
 
@@ -82,12 +92,20 @@ export default function ContractorDashboard() {
     );
   }, [cities, stateFilter]);
 
+  const submittedProjectIds = useMemo(() => {
+    return new Set((bids || []).map((b) => Number(b.projectId)));
+  }, [bids]);
+
   const filteredOpenProjects = useMemo(() => {
     const safeOpen = Array.isArray(openProjects) ? openProjects : [];
     const q = search.trim().toLowerCase();
     const stateNorm = String(stateFilter || 'ALL').toLowerCase();
     const cityNorm = String(cityFilter || 'ALL').toUpperCase();
     return safeOpen.filter((p) => {
+      // Once bid placed, project must NOT appear in Open Projects tab
+      if (submittedProjectIds.has(Number(p.id))) {
+        return false;
+      }
       const matchesState =
         stateNorm === 'all' || String(p.state || '').toLowerCase() === stateNorm;
       const pCityCode = String(p.city || '').toUpperCase();
@@ -103,23 +121,38 @@ export default function ContractorDashboard() {
         String(p.pincode || '').toLowerCase().includes(q);
       return matchesState && matchesCity && matchesSearch;
     });
-  }, [openProjects, search, stateFilter, cityFilter]);
+  }, [openProjects, submittedProjectIds, search, stateFilter, cityFilter]);
 
   const stats = useMemo(() => {
     const safeBids = Array.isArray(bids) ? bids : [];
-    const safeOpen = Array.isArray(openProjects) ? openProjects : [];
+    const safeOpen = filteredOpenProjects;
     const total = safeBids.reduce((sum, b) => sum + Number(b.bidAmount || 0), 0);
     const avg = safeBids.length ? Math.round(total / safeBids.length) : 0;
     return { count: safeBids.length, total, avg, openCount: safeOpen.length };
-  }, [bids, openProjects]);
+  }, [bids, filteredOpenProjects]);
 
   const openBidForProject = (project) => {
+    setEditingBid(null);
     setBidError('');
     setBidForm({
       projectId: String(project.id),
+      projectName: project.projectName || `Project #${project.id}`,
       bidAmount: project.totalEstimatedCost ? String(project.totalEstimatedCost) : '',
       description: '',
       estimatedDays: '180',
+    });
+    setBidDialog(true);
+  };
+
+  const openEditBid = (bid) => {
+    setEditingBid(bid);
+    setBidError('');
+    setBidForm({
+      projectId: String(bid.projectId),
+      projectName: bid.projectName || `Project #${bid.projectId}`,
+      bidAmount: String(bid.bidAmount || ''),
+      description: String(bid.description || ''),
+      estimatedDays: String(bid.estimatedDays || ''),
     });
     setBidDialog(true);
   };
@@ -128,18 +161,51 @@ export default function ContractorDashboard() {
     setBidError('');
     setBidLoading(true);
     try {
-      await submitBid({
-        projectId: parseInt(bidForm.projectId, 10),
-        bidAmount: parseInt(bidForm.bidAmount, 10),
-        description: bidForm.description,
-        estimatedDays: parseInt(bidForm.estimatedDays, 10),
-      });
-      setBidDialog(false);
-      setBidForm({ projectId: '', bidAmount: '', description: '', estimatedDays: '' });
-      loadData();
-      setTab(1);
+      if (editingBid) {
+        const res = await updateBid(editingBid.id, {
+          bidAmount: parseInt(bidForm.bidAmount, 10),
+          description: bidForm.description,
+          estimatedDays: parseInt(bidForm.estimatedDays, 10),
+        });
+        setBids((prev) =>
+          prev.map((b) => (b.id === editingBid.id ? res.data : b))
+        );
+        setSuccessMsg(
+          `Bid for "${bidForm.projectName || `Project #${bidForm.projectId}`}" has been updated successfully.`
+        );
+        setBidDialog(false);
+        setEditingBid(null);
+        setBidForm({ projectId: '', projectName: '', bidAmount: '', description: '', estimatedDays: '' });
+      } else {
+        const pId = parseInt(bidForm.projectId, 10);
+        if (submittedProjectIds.has(pId)) {
+          setBidError(
+            'You have already submitted a bid for this project. Please edit your existing bid under the My Bids tab.'
+          );
+          setBidLoading(false);
+          return;
+        }
+        const res = await submitBid({
+          projectId: pId,
+          bidAmount: parseInt(bidForm.bidAmount, 10),
+          description: bidForm.description,
+          estimatedDays: parseInt(bidForm.estimatedDays, 10),
+        });
+        // Immediately remove this project from open projects list
+        setOpenProjects((prev) => prev.filter((p) => Number(p.id) !== pId));
+        setBids((prev) => [res.data, ...prev]);
+        setSuccessMsg(
+          `Bid placed successfully! It is now active under My Bids where you can review or edit it.`
+        );
+        setBidDialog(false);
+        setBidForm({ projectId: '', projectName: '', bidAmount: '', description: '', estimatedDays: '' });
+        setTab(1); // Switch to My Bids tab
+        loadData();
+      }
     } catch (err) {
-      setBidError(err.response?.data?.error || 'Failed to submit bid.');
+      setBidError(
+        err.response?.data?.error || (editingBid ? 'Failed to update bid.' : 'Failed to submit bid.')
+      );
     } finally {
       setBidLoading(false);
     }
@@ -161,13 +227,48 @@ export default function ContractorDashboard() {
           variant="contained"
           startIcon={<AddCircleOutlineIcon />}
           onClick={() => {
+            setEditingBid(null);
             setBidError('');
-            setBidForm({ projectId: '', bidAmount: '', description: '', estimatedDays: '' });
+            setBidForm({ projectId: '', projectName: '', bidAmount: '', description: '', estimatedDays: '180' });
             setBidDialog(true);
           }}
         >
           Submit Bid
         </Button>
+      </Box>
+
+      {successMsg && (
+        <Alert severity="success" onClose={() => setSuccessMsg('')} sx={{ mb: 3 }}>
+          {successMsg}
+        </Alert>
+      )}
+
+      {/* Location scope notice */}
+      <Box
+        sx={{
+          bgcolor: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: 2,
+          p: 2,
+          mb: 3,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 1.5,
+        }}
+      >
+        <Box>
+          <Typography variant="subtitle2" fontWeight={700} color="#0f172a">
+            📍 Open projects for your city & state (all pincodes)
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Showing homeowner projects in <strong>{[user?.city, user?.state].filter(Boolean).join(', ') || 'your profile city and state'}</strong> across all postal codes. Projects with an existing bid move to <strong>My Bids</strong> where you can edit your quote.
+          </Typography>
+        </Box>
+        <Typography variant="caption" sx={{ color: '#475569', fontWeight: 600 }}>
+          {filteredOpenProjects.length} open · {bids.length} submitted
+        </Typography>
       </Box>
 
       {/* KPI Strip */}
@@ -283,7 +384,7 @@ export default function ContractorDashboard() {
               No matching open projects
             </Typography>
             <Typography variant="body2" color="text.secondary" mb={2}>
-              Homeowner estimates matching your filters will appear here automatically.
+              Homeowner estimates matching your filters will appear here automatically. If you already submitted a bid on a project, it appears in your <strong>My Bids</strong> tab.
             </Typography>
             {(search || stateFilter !== 'ALL' || cityFilter !== 'ALL') && (
               <Button
@@ -342,7 +443,7 @@ export default function ContractorDashboard() {
             No bids submitted yet
           </Typography>
           <Typography variant="body2" color="text.secondary" mb={3}>
-            Browse the Open Projects tab or submit a bid directly by Project ID.
+            Browse the Open Projects tab to place bids on homeowner projects in your city and state.
           </Typography>
           <Button variant="contained" startIcon={<AddCircleOutlineIcon />} onClick={() => setTab(0)}>
             Browse Open Projects
@@ -359,8 +460,8 @@ export default function ContractorDashboard() {
               .join(', ');
             return (
               <Grid item xs={12} sm={6} key={bid.id}>
-                <Card>
-                  <CardContent sx={{ p: 2.5 }}>
+                <Card sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <CardContent sx={{ p: 2.5, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.75 }}>
                       <Typography fontWeight={700}>
                         {bid.projectName || `Project #${bid.projectId}`}
@@ -374,15 +475,28 @@ export default function ContractorDashboard() {
                         Site: {projLoc}{bid.projectPincode ? ` · ${bid.projectPincode}` : ''}
                       </Typography>
                     )}
-                    <Typography variant="body2" color="text.secondary" mb={1.5}>
+                    <Typography variant="body2" color="text.secondary" mb={1.5} sx={{ flexGrow: 1 }}>
                       {bid.description}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" className="tabular-nums">
+                    <Typography variant="caption" color="text.secondary" className="tabular-nums" display="block" mb={1.5}>
                       Project #{bid.projectId} · {bid.estimatedDays} days
                       {contractorLoc ? ` · From ${contractorLoc}` : ''}
                       {bid.contractorPincode ? ` (${bid.contractorPincode})` : ''} · Submitted{' '}
                       {new Date(bid.createdAt).toLocaleDateString('en-IN')}
                     </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 1.5, borderTop: '1px solid #f1f5f9' }}>
+                      <Typography variant="caption" sx={{ color: '#16a34a', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                        <CheckCircleOutlineIcon fontSize="inherit" /> Bid Submitted
+                      </Typography>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<EditIcon fontSize="small" />}
+                        onClick={() => openEditBid(bid)}
+                      >
+                        Edit Bid
+                      </Button>
+                    </Box>
                   </CardContent>
                 </Card>
               </Grid>
@@ -392,9 +506,16 @@ export default function ContractorDashboard() {
       )}
 
       <Dialog open={bidDialog} onClose={() => setBidDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle fontWeight={700}>Submit Contractor Bid</DialogTitle>
+        <DialogTitle fontWeight={700}>
+          {editingBid ? 'Edit Submitted Bid' : 'Submit Contractor Bid'}
+        </DialogTitle>
         <DialogContent>
           {bidError && <Alert severity="error" sx={{ mb: 2 }}>{bidError}</Alert>}
+          {editingBid && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              You are editing your submitted bid for <strong>{bidForm.projectName || `Project #${bidForm.projectId}`}</strong>. Update your proposed pricing, scope, or timeline below.
+            </Alert>
+          )}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
             <TextField
               label="Project ID"
@@ -403,6 +524,12 @@ export default function ContractorDashboard() {
               onChange={(e) => setBidForm({ ...bidForm, projectId: e.target.value })}
               fullWidth
               required
+              disabled={Boolean(editingBid)}
+              helperText={
+                editingBid
+                  ? 'Project ID is locked while editing a submitted bid.'
+                  : 'Enter the ID of the open homeowner project.'
+              }
             />
             <TextField
               label="Bid Amount (₹)"
@@ -441,7 +568,13 @@ export default function ContractorDashboard() {
             onClick={handleBidSubmit}
             disabled={bidLoading || !bidForm.projectId || !bidForm.bidAmount || !bidForm.description || !bidForm.estimatedDays}
           >
-            {bidLoading ? <CircularProgress size={18} color="inherit" /> : 'Submit Bid'}
+            {bidLoading ? (
+              <CircularProgress size={18} color="inherit" />
+            ) : editingBid ? (
+              'Update Bid'
+            ) : (
+              'Submit Bid'
+            )}
           </Button>
         </DialogActions>
       </Dialog>

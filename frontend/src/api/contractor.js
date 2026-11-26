@@ -5,3 +5,4 @@ export const matchContractors = (city, budget) => api.get('/contractors/match', 
 export const submitBid = (data) => api.post('/contractors/bid', data);
 export const getBidsForProject = (projectId) => api.get(`/contractors/bids/project/${projectId}`);
 export const getMyBids = () => api.get('/contractors/bids/my');
+export const updateBid = (id, data) => api.put(`/contractors/bids/${id}`, data);

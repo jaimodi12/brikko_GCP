@@ -81,12 +81,13 @@ export default function Navbar({ children }) {
           <Toolbar sx={{ maxWidth: 1200, width: '100%', mx: 'auto', px: { xs: 2, sm: 3 }, justifyContent: 'space-between', gap: 4 }}>
             <Box
               onClick={() => navigate('/login')}
-              sx={{ display: 'flex', alignItems: 'center', gap: 1.5, cursor: 'pointer', flexShrink: 0 }}
+              sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}
             >
-              <img src="/logo.png" alt="Brikko" style={{ height: 32, width: 'auto' }} />
-              <Typography variant="h6" fontWeight={800} sx={{ letterSpacing: '-0.02em', whiteSpace: 'nowrap' }}>
-                Brikko
-              </Typography>
+              <img
+                src="/logo-full.jpg"
+                alt="Brikko - Build Smart. Build with Brikko."
+                style={{ height: 40, width: 'auto', maxWidth: '100%', objectFit: 'contain' }}
+              />
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
@@ -136,18 +137,18 @@ export default function Navbar({ children }) {
         }}
         sx={{
           height: 64,
-          px: 2.5,
+          px: 2,
           display: 'flex',
           alignItems: 'center',
-          gap: 1.5,
           borderBottom: '1px solid #e2e8f0',
           cursor: 'pointer',
         }}
       >
-        <img src="/logo.png" alt="Brikko" style={{ height: 30, width: 'auto' }} />
-        <Typography variant="h6" fontWeight={800} sx={{ letterSpacing: '-0.02em', color: '#0f172a' }}>
-          Brikko
-        </Typography>
+        <img
+          src="/logo-full.jpg"
+          alt="Brikko - Build Smart. Build with Brikko."
+          style={{ height: 42, width: 'auto', maxWidth: '100%', objectFit: 'contain' }}
+        />
       </Box>
 
       <List sx={{ px: 1.5, py: 2, flexGrow: 1 }}>

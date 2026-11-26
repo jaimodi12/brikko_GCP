@@ -19,7 +19,7 @@
   },
   "scripts": {
     "start": "PORT=3000 HOST=0.0.0.0 BROWSER=none react-scripts start",
-    "build": "BROWSER=none react-scripts build"
+    "build": "CI=false BROWSER=none react-scripts build"
   },
   "browserslist": {
     "production": [
