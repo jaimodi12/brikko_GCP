@@ -35,7 +35,7 @@ const ROUTE_TITLES = [
 ];
 
 export default function Navbar({ children }) {
-  const { firebaseUser, user, needsOnboarding, logout } = useAuth();
+  const { firebaseUser, user, needsOnboarding, signInWithGoogle, signingIn, loading, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -49,6 +49,22 @@ export default function Navbar({ children }) {
     await logout();
     navigate('/login');
   };
+
+  const handleHeaderSignIn = async () => {
+    if (location.pathname !== '/login' && location.pathname !== '/signup') {
+      navigate('/login');
+      return;
+    }
+    try {
+      await signInWithGoogle();
+    } catch (_err) {
+      // Error is surfaced via AuthContext authError in the Login/Signup view
+    }
+  };
+
+  if (location.pathname === '/login') {
+    return <Box component="main" sx={{ flexGrow: 1, minHeight: '100vh' }}>{children}</Box>;
+  }
 
   if (!showWorkspaceChrome) {
     return (
@@ -82,10 +98,11 @@ export default function Navbar({ children }) {
                 <Button
                   variant="contained"
                   size="small"
-                  onClick={() => navigate('/login')}
+                  onClick={handleHeaderSignIn}
+                  disabled={signingIn || loading}
                   sx={{ whiteSpace: 'nowrap' }}
                 >
-                  Sign In
+                  {signingIn ? 'Signing in...' : 'Sign In'}
                 </Button>
               )}
             </Box>

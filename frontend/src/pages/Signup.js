@@ -22,7 +22,17 @@ import { getOptions } from '../api/project';
 import LocationSelector, { PINCODE_REGEX } from '../components/LocationSelector';
 
 export default function Signup() {
-  const { firebaseUser, user, needsOnboarding, loading, signInWithGoogle, completeOnboarding } = useAuth();
+  const {
+    firebaseUser,
+    user,
+    needsOnboarding,
+    loading,
+    signingIn,
+    authError,
+    clearAuthError,
+    signInWithGoogle,
+    completeOnboarding,
+  } = useAuth();
   const navigate = useNavigate();
 
   const [cities, setCities] = useState([]);
@@ -122,14 +132,23 @@ export default function Signup() {
             <Typography variant="body2" color="text.secondary" mb={3}>
               Connect your Google account first, then select whether you are a homeowner or contractor.
             </Typography>
+            {authError && (
+              <Alert severity="error" sx={{ mb: 2.5, textAlign: 'left' }}>
+                {authError}
+              </Alert>
+            )}
             <Button
               variant="contained"
               size="large"
               fullWidth
-              startIcon={<GoogleIcon />}
-              onClick={signInWithGoogle}
+              disabled={signingIn}
+              startIcon={signingIn ? <CircularProgress size={18} color="inherit" /> : <GoogleIcon />}
+              onClick={() => {
+                clearAuthError();
+                signInWithGoogle().catch(() => {});
+              }}
             >
-              Continue with Google
+              {signingIn ? 'Signing in...' : 'Continue with Google'}
             </Button>
           </CardContent>
         </Card>

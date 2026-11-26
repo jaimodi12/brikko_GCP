@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Brikko connects businesses and individuals with verified contractors, suppliers, manufacturers and consultants.">
+<meta name="theme-color" content="#0c4a9a">
+<link rel="icon" type="image/png" href="logo-mark.png">
+<title>Brikko | Verified contractors, suppliers and consultants</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header" id="home">
+  <div class="container nav-wrap">
+    <a class="brand" href="#home" aria-label="Brikko home"><img src="logo-full.jpg" alt="Brikko - Build Smart. Build with Brikko." width="525" height="198"></a>
+    <button class="menu-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="nav"><span></span><span></span></button>
+    <nav class="main-nav" id="nav" aria-label="Main">
+      <a href="#about">About us</a>
+      <a href="#services">Services</a>
+      <a href="#how">How it works</a>
+      <a href="#faq">FAQ</a>
+      <a href="#contact">Contact us</a>
+      <button class="btn btn-sm quote-btn" type="button">Get a quote</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero" aria-roledescription="carousel" aria-label="Brikko highlights">
+  <div class="hero-slide active">
+    <div class="hero-image hero-contractors" role="img" aria-label="Construction workers on site"></div>
+    <div class="container hero-content">
+      <p class="kicker">Trusted contractors</p>
+      <h1>Verified contractors for construction, renovation and project work.</h1>
+      <button class="btn quote-btn" type="button" data-service="Contractor">Get a quote</button>
+    </div>
+  </div>
+  <div class="hero-slide">
+    <div class="hero-image hero-suppliers" role="img" aria-label="Industrial manufacturing floor"></div>
+    <div class="container hero-content">
+      <p class="kicker">Reliable suppliers and manufacturers</p>
+      <h1>Quality materials and manufacturing solutions from trusted sources.</h1>
+      <button class="btn quote-btn" type="button" data-service="Supplier/Manufacturer">Get a quote</button>
+    </div>
+  </div>
+  <div class="hero-slide">
+    <div class="hero-image hero-consultants" role="img" aria-label="Modern office for consultants"></div>
+    <div class="container hero-content">
+      <p class="kicker">Expert consultants</p>
+      <h1>Expert guidance from engineers, architects and industry professionals.</h1>
+      <button class="btn quote-btn" type="button" data-service="Consultant">Get a quote</button>
+    </div>
+  </div>
+  <div class="slider-ui container">
+    <div class="dots" role="tablist" aria-label="Choose slide">
+      <button class="dot active" data-slide="0" aria-label="Slide 1"></button>
+      <button class="dot" data-slide="1" aria-label="Slide 2"></button>
+      <button class="dot" data-slide="2" aria-label="Slide 3"></button>
+    </div>
+    <div class="arrows">
+      <button class="slider-arrow prev" aria-label="Previous slide">‹</button>
+      <button class="slider-arrow next" aria-label="Next slide">›</button>
+    </div>
+  </div>
+</section>
+
+<section class="section about" id="about">
+  <div class="container about-grid">
+    <div class="about-image-wrap">
+      <img class="about-image" src="https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=1100&q=80" alt="Builders reviewing plans on site" loading="lazy" width="1100" height="1300">
+      <div class="badge"><strong>100%</strong><span>Verified<br>connections</span></div>
+    </div>
+    <div class="about-copy">
+      <p class="kicker">Build smart. Build with Brikko.</p>
+      <h2>Building your dream home starts with finding the right builder</h2>
+      <p>Brikko connects businesses and individuals with verified contractors, suppliers, manufacturers and consultants. Our mission is to make finding reliable providers simple, through a transparent and efficient marketplace.</p>
+      <p>Planning a construction project, sourcing materials, looking for manufacturing solutions or professional advice? Brikko helps you discover and connect with the right experts.</p>
+      <a class="text-link" href="#services">Explore our services</a>
+    </div>
+  </div>
+</section>
+
+<section class="section services" id="services">
+  <div class="container">
+    <div class="heading">
+      <p class="kicker">Our services</p>
+      <h2>Three kinds of professionals, one platform</h2>
+      <p>Connect with reliable professionals and businesses for your construction and industrial requirements.</p>
+    </div>
+    <div class="service-grid">
+      <article class="service-card">
+        <img src="https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=900&q=80" alt="" loading="lazy" width="900" height="600">
+        <div class="service-body">
+          <h3>Contractor</h3>
+          <p>Find qualified contractors for construction, renovation, maintenance and specialised project services.</p>
+          <button class="btn btn-ghost quote-btn" type="button" data-service="Contractor">Quote from contractors</button>
+        </div>
+      </article>
+      <article class="service-card">
+        <img src="https://images.unsplash.com/photo-1565610222536-ef125c59da2e?auto=format&fit=crop&w=900&q=80" alt="" loading="lazy" width="900" height="600">
+        <div class="service-body">
+          <h3>Supplier / Manufacturer</h3>
+          <p>Connect with trusted suppliers and manufacturers offering materials, products, equipment and custom solutions.</p>
+          <button class="btn btn-ghost quote-btn" type="button" data-service="Supplier/Manufacturer">Quote from suppliers</button>
+        </div>
+      </article>
+      <article class="service-card">
+        <img src="https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=900&q=80" alt="" loading="lazy" width="900" height="600">
+        <div class="service-body">
+          <h3>Consultant</h3>
+          <p>Engage experienced consultants, engineers, architects and project advisors for expert guidance and planning.</p>
+          <button class="btn btn-ghost quote-btn" type="button" data-service="Consultant">Quote from consultants</button>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="section process" id="how">
+  <div class="container">
+    <div class="heading">
+      <p class="kicker">Simple and transparent</p>
+      <h2>How Brikko works</h2>
+    </div>
+    <ol class="steps">
+      <li><h3>Tell us your requirement</h3><p>Share your construction, material or consulting requirement.</p></li>
+      <li><h3>Find the right expert</h3><p>Discover suitable professionals and businesses for your project.</p></li>
+      <li><h3>Compare and connect</h3><p>Review profiles, quotations and experience, then connect directly.</p></li>
+      <li><h3>Start your project</h3><p>Move forward with the professional or business that fits your needs.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="section faq" id="faq">
+  <div class="container faq-grid">
+    <div class="faq-intro">
+      <p class="kicker">Frequently asked questions</p>
+      <h2>Everything you need to know about Brikko</h2>
+      <p>Quick answers about our marketplace, verification and connections.</p>
+      <button class="btn quote-btn" type="button">Get a quote</button>
+    </div>
+    <div class="faq-list">
+      <div class="faq-item open"><h3><button class="faq-question" aria-expanded="true">What is Brikko?</button></h3><div class="faq-answer"><p>Brikko is a trusted B2B marketplace that connects users with verified contractors, suppliers, manufacturers and consultants across construction, engineering and industrial sectors.</p></div></div>
+      <div class="faq-item"><h3><button class="faq-question" aria-expanded="false">How are businesses verified on Brikko?</button></h3><div class="faq-answer"><p>Businesses are verified based on company registration, experience, portfolio, customer feedback and industry reputation to ensure trust and reliability.</p></div></div>
+      <div class="faq-item"><h3><button class="faq-question" aria-expanded="false">Why should I use Brikko instead of searching manually?</button></h3><div class="faq-answer"><p>Brikko saves time with verified listings, transparent profiles, easy comparison and direct access to contractors, suppliers, manufacturers and consultants in one platform.</p></div></div>
+      <div class="faq-item"><h3><button class="faq-question" aria-expanded="false">Can I find service providers near me?</button></h3><div class="faq-answer"><p>Yes. Brikko helps you find local contractors, suppliers, manufacturers and consultants based on your location and project requirements.</p></div></div>
+      <div class="faq-item"><h3><button class="faq-question" aria-expanded="false">How does Brikko work?</button></h3><div class="faq-answer"><p>Search and connect with verified businesses, compare services, review profiles, and contact contractors, suppliers, manufacturers or consultants directly.</p></div></div>
+      <div class="faq-item"><h3><button class="faq-question" aria-expanded="false">Can I compare multiple quotations or businesses?</button></h3><div class="faq-answer"><p>Yes. You can request and compare multiple quotations and evaluate businesses on pricing, experience, reviews and service quality.</p></div></div>
+      <div class="faq-item"><h3><button class="faq-question" aria-expanded="false">What types of businesses are listed on Brikko?</button></h3><div class="faq-answer"><p>Brikko features contractors, suppliers, manufacturers and consultants across construction, infrastructure, engineering and industrial sectors.</p></div></div>
+      <div class="faq-item"><h3><button class="faq-question" aria-expanded="false">Can I view previous projects and reviews?</button></h3><div class="faq-answer"><p>Yes. Verified businesses showcase portfolios, completed projects, certifications and customer reviews to help you decide.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="container cta-inner">
+    <h2>Ready to find the right professional for your project?</h2>
+    <button class="btn btn-light quote-btn" type="button">Get a quote</button>
+  </div>
+</section>
+</main>
+
+<footer class="footer" id="contact">
+  <div class="container footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="#home" aria-label="Brikko home"><img src="logo-full.jpg" alt="Brikko - Build Smart. Build with Brikko." width="525" height="198"></a>
+      <p>Connecting businesses and individuals with trusted construction and industrial professionals.</p>
+      <div class="socials"><a href="#" aria-label="Facebook">f</a><a href="#" aria-label="Instagram">◎</a><a href="#" aria-label="LinkedIn">in</a></div>
+    </div>
+    <div>
+      <h3>Office contact</h3>
+      <p>Joyville Hinjewadi, Phase 1<br>Pune, MH (411057)</p>
+      <a href="tel:+917219391949">+91-7219391949</a>
+      <a href="mailto:info@brikko.com">info@brikko.com</a>
+    </div>
+    <div>
+      <h3>Service areas</h3>
+      <a href="#services">Contractor</a>
+      <a href="#services">Supplier/Manufacturer</a>
+      <a href="#services">Consultant</a>
+    </div>
+    <div>
+      <h3>Useful pages</h3>
+      <a href="#about">About us</a>
+      <a href="#services">Services</a>
+      <a href="#faq">FAQ</a>
+      <a href="#contact">Contact us</a>
+    </div>
+    <div>
+      <h3>Newsletter</h3>
+      <p>Latest news and updates from Brikko.</p>
+      <form class="newsletter"><label class="sr" for="nl">Email</label><input id="nl" type="email" placeholder="Your email" required><button type="submit" aria-label="Subscribe">→</button></form>
+      <p class="nl-msg" role="status"></p>
+    </div>
+  </div>
+  <div class="footer-bottom"><div class="container">© <span id="year"></span> Brikko. All rights reserved.</div></div>
+</footer>
+
+<div class="modal" id="quoteModal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="qm-title">
+  <div class="modal-card">
+    <button class="modal-close" aria-label="Close">×</button>
+    <h2 id="qm-title">Tell us what you need</h2>
+    <p>Submit your requirement and our team will help you connect with the right professional.</p>
+    <form id="quoteForm">
+      <div class="form-row"><input name="name" placeholder="Your name" autocomplete="name" required><input name="phone" type="tel" placeholder="Phone number" autocomplete="tel" required></div>
+      <input name="email" type="email" placeholder="Email address" autocomplete="email">
+      <select name="service" required aria-label="Service"><option value="">Select service</option><option>Contractor</option><option>Supplier/Manufacturer</option><option>Consultant</option></select>
+      <textarea name="message" rows="4" placeholder="Describe your requirement" required></textarea>
+      <button class="btn" type="submit">Send requirement</button>
+    </form>
+    <div class="form-success" hidden role="status">Thank you! We have received your requirement and will contact you soon.</div>
+  </div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>
