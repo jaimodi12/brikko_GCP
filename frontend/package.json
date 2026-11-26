@@ -1,0 +1,36 @@
+{
+  "name": "construction-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/icons-material": "^6.4.8",
+    "@mui/material": "^6.4.8",
+    "axios": "^1.15.2",
+    "firebase": "^11.4.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.4.0",
+    "react-scripts": "^5.0.1"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1"
+  },
+  "scripts": {
+    "start": "PORT=3000 HOST=0.0.0.0 BROWSER=none react-scripts start",
+    "build": "BROWSER=none react-scripts build"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
