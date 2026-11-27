@@ -4,13 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "npm --prefix frontend install --legacy-peer-deps",
-    "build:frontend": "node -e \"const fs = require('fs'); if (fs.existsSync('firebase-applet-config.json')) { fs.mkdirSync('frontend/src', { recursive: true }); fs.copyFileSync('firebase-applet-config.json', 'frontend/src/firebase-applet-config.json'); }\" && CI=false BROWSER=none npm --prefix frontend run build",
+    "postinstall": "node scripts/setup-frontend.mjs install",
+    "build:frontend": "node scripts/setup-frontend.mjs build",
     "build": "npm run build:frontend",
-    "gcp-build": "npm run build",
+    "gcp-build": "npm run build:frontend",
     "dev": "node server.js",
     "start": "node server.js",
-    "lint": "node --check server.js && node --check locationMetadata.js"
+    "lint": "node --check server.js && node --check locationMetadata.js && node --check scripts/setup-frontend.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

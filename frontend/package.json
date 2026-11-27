@@ -7,6 +7,7 @@
     "@emotion/styled": "^11.14.0",
     "@mui/icons-material": "^6.4.8",
     "@mui/material": "^6.4.8",
+    "ajv": "^8.17.1",
     "axios": "^1.15.2",
     "firebase": "^11.4.0",
     "react": "^19.1.0",
@@ -14,12 +15,9 @@
     "react-router-dom": "^7.4.0",
     "react-scripts": "^5.0.1"
   },
-  "devDependencies": {
-    "ajv": "^8.17.1"
-  },
   "scripts": {
     "start": "PORT=3000 HOST=0.0.0.0 BROWSER=none react-scripts start",
-    "build": "CI=false BROWSER=none react-scripts build"
+    "build": "CI=false BROWSER=none GENERATE_SOURCEMAP=false react-scripts build"
   },
   "browserslist": {
     "production": [

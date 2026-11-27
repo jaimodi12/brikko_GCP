@@ -1,6 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
 import { initializeApp, getApps, getApp } from 'firebase-admin/app';
@@ -62,78 +63,104 @@ if (pool) {
 
 let dbReady = false;
 let dbError = connectionString ? null : 'DATABASE_URL environment variable is not configured.';
+let initDbPromise = null;
+let dbRetryTimer = null;
+let dbRetryDelayMs = 5000;
 
 async function initDatabase() {
-  if (!pool) return;
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id BIGSERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        email VARCHAR(150) NOT NULL UNIQUE,
-        password VARCHAR(255),
-        phone VARCHAR(10) NOT NULL UNIQUE,
-        role VARCHAR(50) NOT NULL,
-        city VARCHAR(50),
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS contractors (
-        id BIGSERIAL PRIMARY KEY,
-        user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-        company_name VARCHAR(150) NOT NULL,
-        description VARCHAR(500),
-        experience_years INTEGER NOT NULL DEFAULT 0,
-        specialization VARCHAR(200),
-        rating DOUBLE PRECISION DEFAULT 0.0,
-        min_budget BIGINT,
-        max_budget BIGINT,
-        city VARCHAR(50) NOT NULL,
-        is_verified BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS projects (
-        id BIGSERIAL PRIMARY KEY,
-        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        city VARCHAR(50) NOT NULL,
-        plot_area_sq_ft DOUBLE PRECISION NOT NULL,
-        number_of_floors INTEGER NOT NULL,
-        roof_area_sq_ft DOUBLE PRECISION NOT NULL,
-        cement_type VARCHAR(50) NOT NULL,
-        brick_work BOOLEAN NOT NULL,
-        paint_type VARCHAR(50) NOT NULL,
-        window_type VARCHAR(50) NOT NULL,
-        number_of_windows INTEGER NOT NULL,
-        number_of_rooms INTEGER NOT NULL,
-        additional_options TEXT,
-        total_estimated_cost BIGINT,
-        project_name VARCHAR(200),
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS contractor_bids (
-        id BIGSERIAL PRIMARY KEY,
-        contractor_id BIGINT NOT NULL REFERENCES contractors(id) ON DELETE CASCADE,
-        project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        bid_amount BIGINT NOT NULL,
-        description VARCHAR(1000),
-        estimated_days INTEGER NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-    await ensureLocationMetadataSchema(pool);
-    dbReady = true;
-    dbError = null;
-    console.log('Connected to Supabase PostgreSQL and verified schema & city metadata.');
-  } catch (err) {
-    dbReady = false;
-    dbError = err.message || 'Database connection failed.';
-    console.error('Supabase PostgreSQL initialization failed:', dbError);
-  }
+  if (!pool) return false;
+  if (initDbPromise) return initDbPromise;
+
+  initDbPromise = (async () => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id BIGSERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          email VARCHAR(150) NOT NULL UNIQUE,
+          password VARCHAR(255),
+          phone VARCHAR(10) NOT NULL UNIQUE,
+          role VARCHAR(50) NOT NULL,
+          city VARCHAR(50),
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contractors (
+          id BIGSERIAL PRIMARY KEY,
+          user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+          company_name VARCHAR(150) NOT NULL,
+          description VARCHAR(500),
+          experience_years INTEGER NOT NULL DEFAULT 0,
+          specialization VARCHAR(200),
+          rating DOUBLE PRECISION DEFAULT 0.0,
+          min_budget BIGINT,
+          max_budget BIGINT,
+          city VARCHAR(50) NOT NULL,
+          is_verified BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS projects (
+          id BIGSERIAL PRIMARY KEY,
+          user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          city VARCHAR(50) NOT NULL,
+          plot_area_sq_ft DOUBLE PRECISION NOT NULL,
+          number_of_floors INTEGER NOT NULL,
+          roof_area_sq_ft DOUBLE PRECISION NOT NULL,
+          cement_type VARCHAR(50) NOT NULL,
+          brick_work BOOLEAN NOT NULL,
+          paint_type VARCHAR(50) NOT NULL,
+          window_type VARCHAR(50) NOT NULL,
+          number_of_windows INTEGER NOT NULL,
+          number_of_rooms INTEGER NOT NULL,
+          additional_options TEXT,
+          total_estimated_cost BIGINT,
+          project_name VARCHAR(200),
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contractor_bids (
+          id BIGSERIAL PRIMARY KEY,
+          contractor_id BIGINT NOT NULL REFERENCES contractors(id) ON DELETE CASCADE,
+          project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          bid_amount BIGINT NOT NULL,
+          description VARCHAR(1000),
+          estimated_days INTEGER NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await ensureLocationMetadataSchema(pool);
+      dbReady = true;
+      dbError = null;
+      dbRetryDelayMs = 5000;
+      if (dbRetryTimer) {
+        clearTimeout(dbRetryTimer);
+        dbRetryTimer = null;
+      }
+      console.log('Connected to Supabase PostgreSQL and verified schema & city metadata.');
+      return true;
+    } catch (err) {
+      dbReady = false;
+      dbError = err.message || 'Database connection failed.';
+      console.error('Supabase PostgreSQL initialization failed:', dbError);
+      if (!dbRetryTimer) {
+        const delay = dbRetryDelayMs;
+        dbRetryDelayMs = Math.min(30000, dbRetryDelayMs * 2);
+        dbRetryTimer = setTimeout(() => {
+          dbRetryTimer = null;
+          initDatabase().catch(() => {});
+        }, delay);
+      }
+      return false;
+    } finally {
+      initDbPromise = null;
+    }
+  })();
+
+  return initDbPromise;
 }
 
 initDatabase();
@@ -172,7 +199,7 @@ function sendError(res, status, message, extra = {}) {
   });
 }
 
-function requireDb(_req, res, next) {
+async function requireDb(_req, res, next) {
   if (!pool) {
     return sendError(
       res,
@@ -181,7 +208,10 @@ function requireDb(_req, res, next) {
     );
   }
   if (!dbReady) {
-    initDatabase().catch(() => {});
+    const ok = await initDatabase().catch(() => false);
+    if (!ok && !dbReady) {
+      return sendError(res, 503, dbError || 'Database is still initializing. Please try again shortly.');
+    }
   }
   return next();
 }
@@ -389,6 +419,8 @@ app.get('/api/health', async (_req, res) => {
     dbConfigured: Boolean(pool),
     dbConnected: connected,
     dbMessage: connected ? 'Connected to Supabase PostgreSQL' : dbError,
+    frontendReady: fs.existsSync(indexPath),
+    frontendBuildStatus: fs.existsSync(indexPath) ? 'ready' : frontendBuildState.status,
   });
 });
 
@@ -1623,27 +1655,217 @@ app.get('/api/contractors/bids/my', requireFirebaseAuth, requireDb, async (req, 
   }
 });
 
-// ----- Serve Built React Frontend + SPA Fallback -----
+// ----- Serve Built React Frontend + Self-Healing Build Fallback -----
 const buildDir = path.join(__dirname, 'frontend', 'build');
-app.use(express.static(buildDir));
+const indexPath = path.join(buildDir, 'index.html');
+const frontendBuildState = {
+  status: fs.existsSync(indexPath) ? 'ready' : 'idle',
+  error: null,
+  promise: null,
+};
+
+function syncFrontendFirebaseConfig() {
+  const srcConfig = path.join(__dirname, 'firebase-applet-config.json');
+  const destDir = path.join(__dirname, 'frontend', 'src');
+  const destConfig = path.join(destDir, 'firebase-applet-config.json');
+  if (fs.existsSync(srcConfig)) {
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(srcConfig, destConfig);
+  }
+}
+
+function runCommandAsync(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...options,
+    });
+    let stderrTail = '';
+    child.stdout?.on('data', (chunk) => {
+      process.stdout.write(`[frontend-build] ${chunk}`);
+    });
+    child.stderr?.on('data', (chunk) => {
+      const text = chunk.toString();
+      stderrTail = (stderrTail + text).slice(-2000);
+      process.stderr.write(`[frontend-build] ${text}`);
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Command "${command} ${args.join(' ')}" exited with code ${code}${stderrTail ? `: ${stderrTail.trim()}` : ''}`));
+      }
+    });
+  });
+}
+
+function ensureFrontendBuild(forceRetry = false) {
+  if (fs.existsSync(indexPath)) {
+    frontendBuildState.status = 'ready';
+    frontendBuildState.error = null;
+    return Promise.resolve(true);
+  }
+  if (process.env.K_SERVICE) {
+    frontendBuildState.status = 'error';
+    frontendBuildState.error = 'Frontend build output missing in Cloud Run container.';
+    console.error('Frontend build output (frontend/build/index.html) is missing in Cloud Run.');
+    return Promise.resolve(false);
+  }
+  if (frontendBuildState.promise) {
+    return frontendBuildState.promise;
+  }
+  if (frontendBuildState.status === 'error' && !forceRetry) {
+    return Promise.resolve(false);
+  }
+
+  frontendBuildState.status = 'building';
+  frontendBuildState.error = null;
+
+  frontendBuildState.promise = (async () => {
+    try {
+      const reactScriptsBin = path.join(__dirname, 'frontend', 'node_modules', '.bin', 'react-scripts');
+      if (!fs.existsSync(reactScriptsBin)) {
+        console.log('Frontend node_modules missing; installing frontend dependencies...');
+        await runCommandAsync(
+          'npm',
+          ['--prefix', 'frontend', 'install', '--include=dev', '--no-audit', '--no-fund', '--prefer-offline', '--legacy-peer-deps'],
+          { env: { ...process.env, NODE_ENV: 'development' } }
+        );
+      }
+      syncFrontendFirebaseConfig();
+      console.log('Building frontend bundle in background...');
+      await runCommandAsync('npm', ['--prefix', 'frontend', 'run', 'build'], {
+        env: { ...process.env, CI: 'false', BROWSER: 'none', GENERATE_SOURCEMAP: 'false', NODE_ENV: 'production' },
+      });
+      if (fs.existsSync(indexPath)) {
+        frontendBuildState.status = 'ready';
+        frontendBuildState.error = null;
+        console.log('Frontend build completed and is ready to serve.');
+        return true;
+      }
+      throw new Error('Frontend build finished without producing frontend/build/index.html.');
+    } catch (err) {
+      frontendBuildState.status = 'error';
+      frontendBuildState.error = err?.message || 'Frontend build failed.';
+      console.error('Background frontend build failed:', frontendBuildState.error);
+      return false;
+    } finally {
+      frontendBuildState.promise = null;
+    }
+  })();
+
+  return frontendBuildState.promise;
+}
+
+app.use(
+  express.static(buildDir, {
+    setHeaders: (res, filePath) => {
+      if (path.basename(filePath) === 'index.html') {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    },
+  })
+);
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) {
     return sendError(res, 404, 'Endpoint not found.');
   }
-  const indexPath = path.join(buildDir, 'index.html');
   if (fs.existsSync(indexPath)) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     return res.sendFile(indexPath);
   }
-  return res.status(200).send('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Brikko</title></head><body><div id="root">Loading Brikko...</div></body></html>');
+
+  const retryRequested = req.query.retryBuild === '1';
+  ensureFrontendBuild(retryRequested).catch(() => {});
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+
+  if (frontendBuildState.status === 'error' && !retryRequested) {
+    return res.status(process.env.K_SERVICE ? 200 : 503).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Brikko — Startup Recovery</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8fafc; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; }
+    .card { max-width: 480px; width: 100%; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 28px; box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06); }
+    h1 { margin: 0 0 8px; font-size: 20px; font-weight: 700; }
+    p { margin: 0 0 18px; font-size: 14px; color: #475569; line-height: 1.5; }
+    .btn { display: inline-block; background: #1d4ed8; color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 10px 18px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Unable to finish frontend build</h1>
+    <p>The Brikko web interface could not be compiled automatically. Click below to retry building the application.</p>
+    <a class="btn" href="/?retryBuild=1">Retry Build</a>
+  </div>
+</body>
+</html>`);
+  }
+
+  return res.status(200).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="refresh" content="3" />
+  <title>Brikko — Starting Up</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8fafc; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; }
+    .card { max-width: 420px; width: 100%; text-align: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px 24px; box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06); }
+    .spinner { width: 34px; height: 34px; margin: 0 auto 16px; border: 3px solid #dbeafe; border-top-color: #1d4ed8; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    h1 { margin: 0 0 8px; font-size: 18px; font-weight: 700; }
+    p { margin: 0; font-size: 14px; color: #475569; line-height: 1.5; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h1>Preparing Brikko...</h1>
+    <p>Compiling the web interface in the background. This page will reload automatically in a few seconds.</p>
+  </div>
+  <script>
+    setInterval(function () {
+      fetch('/api/health', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (d && d.frontendReady) window.location.reload(); })
+        .catch(function () {});
+    }, 2000);
+  </script>
+</body>
+</html>`);
 });
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`Brikko server running on http://${HOST}:${PORT}`);
+  if (!fs.existsSync(indexPath) && !process.env.K_SERVICE) {
+    ensureFrontendBuild().catch(() => {});
+  }
+});
+
+server.on('error', (err) => {
+  console.error('HTTP server error:', err);
+});
+
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Promise Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
 });
 
 process.on('SIGTERM', () => {
   console.log('SIGTERM signal received: closing HTTP server');
+  if (dbRetryTimer) clearTimeout(dbRetryTimer);
   server.close(() => {
     process.exit(0);
   });
@@ -1651,6 +1873,7 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   console.log('SIGINT signal received: closing HTTP server');
+  if (dbRetryTimer) clearTimeout(dbRetryTimer);
   server.close(() => {
     process.exit(0);
   });
