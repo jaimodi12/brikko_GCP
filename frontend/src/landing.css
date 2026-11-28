@@ -1,12 +1,13 @@
 :root{
   --blue:#0c4a9a;--blue-dark:#08336b;--orange:#f06008;--ink:#0f2038;--muted:#52627a;--bg:#f3f7fc;--card:#fff;--line:#dbe4f0;
   --radius:10px;--shadow:0 12px 32px rgba(12,74,154,.10);
-  --h:"Bricolage Grotesque",Inter,system-ui,sans-serif;--b:Inter,system-ui,sans-serif;
+  --h:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;--b:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;
   --pad:clamp(64px,9vw,112px);--header:76px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth;scroll-padding-top:calc(var(--header) + 12px);-webkit-text-size-adjust:100%}
 body{font:400 1rem/1.65 var(--b);color:var(--ink);background:var(--bg);overflow-x:hidden}
+button,input,select,textarea{font-family:var(--b)}
 img{max-width:100%;display:block}
 h1,h2,h3,.brand{font-family:var(--h);line-height:1.1;letter-spacing:-.02em}
 h1,h2{font-weight:800}h3{font-weight:600}

@@ -31,10 +31,18 @@ const theme = createTheme({
   },
   shape: { borderRadius: 8 },
   components: {
+    MuiCssBaseline: {
+      styleOverrides: {
+        'html, body, button, input, select, textarea': {
+          fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+        },
+      },
+    },
     MuiButton: {
       defaultProps: { disableElevation: true },
       styleOverrides: {
         root: {
+          fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif",
           textTransform: 'none',
           fontWeight: 600,
           borderRadius: 8,

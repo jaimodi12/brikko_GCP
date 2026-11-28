@@ -1,5 +1,6 @@
 import express from 'express';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -413,14 +414,16 @@ app.get('/api/health', async (_req, res) => {
       dbError = err.message;
     }
   }
+  const ready = fs.existsSync(indexPath);
   res.json({
     ok: true,
     firebaseConfigured: Boolean(firebaseAuth),
     dbConfigured: Boolean(pool),
     dbConnected: connected,
     dbMessage: connected ? 'Connected to Supabase PostgreSQL' : dbError,
-    frontendReady: fs.existsSync(indexPath),
-    frontendBuildStatus: fs.existsSync(indexPath) ? 'ready' : frontendBuildState.status,
+    frontendReady: ready,
+    frontendBuildStatus: ready ? 'ready' : frontendBuildState.status,
+    frontendBuildError: !ready && frontendBuildState.status === 'error' ? frontendBuildState.error : null,
   });
 });
 
@@ -1701,16 +1704,42 @@ function runCommandAsync(command, args, options = {}) {
   });
 }
 
+const externalBuildLockPath = path.join(os.tmpdir(), 'brikko-frontend-build.lock');
+const kServiceName = String(process.env.K_SERVICE || '');
+const isDeployedCloudRunProd = Boolean(kServiceName) && !kServiceName.startsWith('ais-dev-');
+
+function isExternalBuildActive() {
+  try {
+    if (!fs.existsSync(externalBuildLockPath)) return false;
+    const ageMs = Date.now() - fs.statSync(externalBuildLockPath).mtimeMs;
+    return ageMs >= 0 && ageMs < 5 * 60 * 1000;
+  } catch {
+    return false;
+  }
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function ensureFrontendBuild(forceRetry = false) {
   if (fs.existsSync(indexPath)) {
     frontendBuildState.status = 'ready';
     frontendBuildState.error = null;
     return Promise.resolve(true);
   }
-  if (process.env.K_SERVICE) {
+  if (isDeployedCloudRunProd) {
     frontendBuildState.status = 'error';
-    frontendBuildState.error = 'Frontend build output missing in Cloud Run container.';
-    console.error('Frontend build output (frontend/build/index.html) is missing in Cloud Run.');
+    frontendBuildState.error = 'Frontend build output missing in deployed Cloud Run container.';
+    console.error('Frontend build output (frontend/build/index.html) is missing in deployed Cloud Run.');
+    return Promise.resolve(false);
+  }
+  if (isExternalBuildActive()) {
+    frontendBuildState.status = 'building';
     return Promise.resolve(false);
   }
   if (frontendBuildState.promise) {
@@ -1726,13 +1755,32 @@ function ensureFrontendBuild(forceRetry = false) {
   frontendBuildState.promise = (async () => {
     try {
       const reactScriptsBin = path.join(__dirname, 'frontend', 'node_modules', '.bin', 'react-scripts');
-      if (!fs.existsSync(reactScriptsBin)) {
+      const ajvPkg = path.join(__dirname, 'frontend', 'node_modules', 'ajv', 'package.json');
+      if (!fs.existsSync(reactScriptsBin) || !fs.existsSync(ajvPkg)) {
         console.log('Frontend node_modules missing; installing frontend dependencies...');
-        await runCommandAsync(
-          'npm',
-          ['--prefix', 'frontend', 'install', '--include=dev', '--no-audit', '--no-fund', '--prefer-offline', '--legacy-peer-deps'],
-          { env: { ...process.env, NODE_ENV: 'development' } }
-        );
+        const installEnv = { ...process.env, NODE_ENV: 'development' };
+        delete installEnv.NPM_CONFIG_PRODUCTION;
+        delete installEnv.npm_config_production;
+        delete installEnv.NPM_CONFIG_OMIT;
+        delete installEnv.npm_config_omit;
+        delete installEnv.NPM_CONFIG_ONLY;
+        delete installEnv.npm_config_only;
+
+        let installedWithBun = false;
+        try {
+          await runCommandAsync('bun', ['install', '--cwd', 'frontend'], { env: installEnv });
+          installedWithBun = fs.existsSync(reactScriptsBin) && fs.existsSync(ajvPkg);
+        } catch (bunErr) {
+          console.warn('Background bun frontend install failed; falling back to npm:', bunErr?.message || bunErr);
+        }
+
+        if (!installedWithBun) {
+          await runCommandAsync(
+            'npm',
+            ['--prefix', 'frontend', 'install', '--include=dev', '--no-audit', '--no-fund', '--prefer-offline', '--legacy-peer-deps'],
+            { env: installEnv }
+          );
+        }
       }
       syncFrontendFirebaseConfig();
       console.log('Building frontend bundle in background...');
@@ -1764,6 +1812,8 @@ app.use(
     setHeaders: (res, filePath) => {
       if (path.basename(filePath) === 'index.html') {
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
       }
     },
   })
@@ -1773,24 +1823,38 @@ app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) {
     return sendError(res, 404, 'Endpoint not found.');
   }
+  if (req.path.startsWith('/static/') || /\.[a-zA-Z0-9]{1,8}$/.test(req.path)) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(404).type('text/plain').send('Asset not found.');
+  }
   if (fs.existsSync(indexPath)) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     return res.sendFile(indexPath);
   }
 
   const retryRequested = req.query.retryBuild === '1';
   ensureFrontendBuild(retryRequested).catch(() => {});
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
 
   if (frontendBuildState.status === 'error' && !retryRequested) {
-    return res.status(process.env.K_SERVICE ? 200 : 503).send(`<!DOCTYPE html>
+    const detailHtml = frontendBuildState.error
+      ? `<p style="font-size:12px;color:#64748b;background:#f1f5f9;padding:10px 12px;border-radius:6px;word-break:break-word;">${escapeHtml(frontendBuildState.error.slice(0, 320))}</p>`
+      : '';
+    return res.status(isDeployedCloudRunProd ? 200 : 503).send(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Brikko — Startup Recovery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8fafc; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8fafc; color: #0f172a; font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; padding: 24px; }
     .card { max-width: 480px; width: 100%; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 28px; box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06); }
     h1 { margin: 0 0 8px; font-size: 20px; font-weight: 700; }
     p { margin: 0 0 18px; font-size: 14px; color: #475569; line-height: 1.5; }
@@ -1801,6 +1865,7 @@ app.get('*', (req, res) => {
   <div class="card">
     <h1>Unable to finish frontend build</h1>
     <p>The Brikko web interface could not be compiled automatically. Click below to retry building the application.</p>
+    ${detailHtml}
     <a class="btn" href="/?retryBuild=1">Retry Build</a>
   </div>
 </body>
@@ -1814,8 +1879,11 @@ app.get('*', (req, res) => {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="refresh" content="3" />
   <title>Brikko — Starting Up</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8fafc; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8fafc; color: #0f172a; font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; padding: 24px; }
     .card { max-width: 420px; width: 100%; text-align: center; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px 24px; box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06); }
     .spinner { width: 34px; height: 34px; margin: 0 auto 16px; border: 3px solid #dbeafe; border-top-color: #1d4ed8; border-radius: 50%; animation: spin 0.8s linear infinite; }
     h1 { margin: 0 0 8px; font-size: 18px; font-weight: 700; }
@@ -1833,7 +1901,10 @@ app.get('*', (req, res) => {
     setInterval(function () {
       fetch('/api/health', { cache: 'no-store' })
         .then(function (r) { return r.json(); })
-        .then(function (d) { if (d && d.frontendReady) window.location.reload(); })
+        .then(function (d) {
+          if (d && d.frontendReady) window.location.href = '/';
+          else if (d && d.frontendBuildStatus === 'error') window.location.href = '/';
+        })
         .catch(function () {});
     }, 2000);
   </script>
@@ -1843,7 +1914,7 @@ app.get('*', (req, res) => {
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`Brikko server running on http://${HOST}:${PORT}`);
-  if (!fs.existsSync(indexPath) && !process.env.K_SERVICE) {
+  if (!fs.existsSync(indexPath) && !isDeployedCloudRunProd) {
     ensureFrontendBuild().catch(() => {});
   }
 });

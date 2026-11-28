@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/setup-frontend.mjs install",
+    "postinstall": "node scripts/setup-frontend.mjs sync-config",
     "build:frontend": "node scripts/setup-frontend.mjs build",
     "build": "npm run build:frontend",
     "gcp-build": "npm run build:frontend",

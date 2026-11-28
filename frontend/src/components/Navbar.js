@@ -278,7 +278,7 @@ export default function Navbar({ children }) {
             </Box>
 
             <Box sx={{ flexShrink: 0 }}>
-              {user.role === 'USER' && location.pathname !== '/new-project' && (
+              {user.role === 'USER' && !['/', '/profile', '/new-project'].includes(location.pathname) && (
                 <Button
                   variant="contained"
                   size="small"
