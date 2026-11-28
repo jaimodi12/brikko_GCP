@@ -16,8 +16,8 @@
     "react-scripts": "^5.0.1"
   },
   "scripts": {
-    "start": "PORT=3000 HOST=0.0.0.0 BROWSER=none react-scripts start",
-    "build": "CI=false BROWSER=none GENERATE_SOURCEMAP=false react-scripts build"
+    "start": "node ../scripts/setup-frontend.mjs start",
+    "build": "node ../scripts/setup-frontend.mjs react-build"
   },
   "browserslist": {
     "production": [

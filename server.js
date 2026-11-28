@@ -19,6 +19,30 @@ const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load local .env for VS Code / local development without overriding existing env vars
+try {
+  const dotenvPath = path.join(__dirname, '.env');
+  if (fs.existsSync(dotenvPath)) {
+    const lines = fs.readFileSync(dotenvPath, 'utf-8').split(/\r?\n/);
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eqIdx = line.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = line.slice(0, eqIdx).trim();
+      let val = line.slice(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (key && process.env[key] === undefined) {
+        process.env[key] = val;
+      }
+    }
+  }
+} catch (err) {
+  console.warn('Unable to load .env file:', err.message);
+}
+
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
@@ -1682,6 +1706,7 @@ function runCommandAsync(command, args, options = {}) {
     const child = spawn(command, args, {
       cwd: __dirname,
       stdio: ['ignore', 'pipe', 'pipe'],
+      shell: process.platform === 'win32',
       ...options,
     });
     let stderrTail = '';
@@ -1754,9 +1779,9 @@ function ensureFrontendBuild(forceRetry = false) {
 
   frontendBuildState.promise = (async () => {
     try {
-      const reactScriptsBin = path.join(__dirname, 'frontend', 'node_modules', '.bin', 'react-scripts');
+      const reactScriptsPkg = path.join(__dirname, 'frontend', 'node_modules', 'react-scripts', 'package.json');
       const ajvPkg = path.join(__dirname, 'frontend', 'node_modules', 'ajv', 'package.json');
-      if (!fs.existsSync(reactScriptsBin) || !fs.existsSync(ajvPkg)) {
+      if (!fs.existsSync(reactScriptsPkg) || !fs.existsSync(ajvPkg)) {
         console.log('Frontend node_modules missing; installing frontend dependencies...');
         const installEnv = { ...process.env, NODE_ENV: 'development' };
         delete installEnv.NPM_CONFIG_PRODUCTION;
@@ -1769,7 +1794,7 @@ function ensureFrontendBuild(forceRetry = false) {
         let installedWithBun = false;
         try {
           await runCommandAsync('bun', ['install', '--cwd', 'frontend'], { env: installEnv });
-          installedWithBun = fs.existsSync(reactScriptsBin) && fs.existsSync(ajvPkg);
+          installedWithBun = fs.existsSync(reactScriptsPkg) && fs.existsSync(ajvPkg);
         } catch (bunErr) {
           console.warn('Background bun frontend install failed; falling back to npm:', bunErr?.message || bunErr);
         }

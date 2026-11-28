@@ -1,4 +1,4 @@
-import { execSync, spawnSync } from 'child_process';
+import { execFileSync, execSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -9,6 +9,9 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const frontendDir = path.join(rootDir, 'frontend');
 const buildLockPath = path.join(os.tmpdir(), 'brikko-frontend-build.lock');
+const reactScriptsPkg = path.join(frontendDir, 'node_modules', 'react-scripts', 'package.json');
+const reactScriptsEntry = path.join(frontendDir, 'node_modules', 'react-scripts', 'bin', 'react-scripts.js');
+const ajvPkg = path.join(frontendDir, 'node_modules', 'ajv', 'package.json');
 
 function buildCleanInstallEnv() {
   const env = { ...process.env, NODE_ENV: 'development' };
@@ -23,7 +26,10 @@ function buildCleanInstallEnv() {
 
 function hasCommand(cmd) {
   try {
-    const res = spawnSync(cmd, ['--version'], { stdio: 'ignore' });
+    const res = spawnSync(cmd, ['--version'], {
+      stdio: 'ignore',
+      shell: process.platform === 'win32',
+    });
     return res.status === 0;
   } catch {
     return false;
@@ -44,11 +50,9 @@ function hasFreshStamp(pkgPath) {
 }
 
 function ensureFrontendDependencies() {
-  const reactScriptsBin = path.join(frontendDir, 'node_modules', '.bin', 'react-scripts');
-  const ajvPkg = path.join(frontendDir, 'node_modules', 'ajv', 'package.json');
   const pkg = path.join(frontendDir, 'package.json');
 
-  if (fs.existsSync(reactScriptsBin) && fs.existsSync(ajvPkg) && hasFreshStamp(pkg)) {
+  if (fs.existsSync(reactScriptsPkg) && fs.existsSync(reactScriptsEntry) && fs.existsSync(ajvPkg) && hasFreshStamp(pkg)) {
     console.log('Frontend dependencies already up to date.');
     return;
   }
@@ -63,7 +67,7 @@ function ensureFrontendDependencies() {
         stdio: 'inherit',
         env: installEnv,
       });
-      if (fs.existsSync(reactScriptsBin) && fs.existsSync(ajvPkg)) {
+      if (fs.existsSync(reactScriptsPkg) && fs.existsSync(reactScriptsEntry) && fs.existsSync(ajvPkg)) {
         return;
       }
     } catch (err) {
@@ -92,6 +96,43 @@ function syncFirebaseConfig() {
   }
 }
 
+function runReactScripts(commandName, extraEnv = {}) {
+  if (!fs.existsSync(reactScriptsEntry)) {
+    throw new Error('react-scripts is not installed in frontend/node_modules.');
+  }
+  execFileSync(process.execPath, [reactScriptsEntry, commandName], {
+    cwd: frontendDir,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      ...extraEnv,
+    },
+  });
+}
+
+function swapDirectory(stagingDir, finalDir, backupDir) {
+  try {
+    if (fs.existsSync(finalDir)) {
+      fs.renameSync(finalDir, backupDir);
+    }
+    fs.renameSync(stagingDir, finalDir);
+    fs.rmSync(backupDir, { recursive: true, force: true });
+  } catch (err) {
+    // Fallback for Windows file-watcher locks (EPERM / EBUSY)
+    if (fs.existsSync(backupDir) && !fs.existsSync(finalDir)) {
+      try {
+        fs.renameSync(backupDir, finalDir);
+      } catch {
+        // Ignore rollback failure
+      }
+    }
+    fs.rmSync(finalDir, { recursive: true, force: true });
+    fs.cpSync(stagingDir, finalDir, { recursive: true });
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    fs.rmSync(backupDir, { recursive: true, force: true });
+  }
+}
+
 function buildFrontend() {
   try {
     fs.writeFileSync(buildLockPath, String(process.pid), 'utf-8');
@@ -107,26 +148,17 @@ function buildFrontend() {
     fs.rmSync(stagingBuildDir, { recursive: true, force: true });
     fs.rmSync(backupBuildDir, { recursive: true, force: true });
     console.log('Building frontend bundle...');
-    execSync('npm --prefix frontend run build', {
-      cwd: rootDir,
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        CI: 'false',
-        BROWSER: 'none',
-        GENERATE_SOURCEMAP: 'false',
-        BUILD_PATH: 'build_staging',
-        NODE_ENV: 'production',
-      },
+    runReactScripts('build', {
+      CI: 'false',
+      BROWSER: 'none',
+      GENERATE_SOURCEMAP: 'false',
+      BUILD_PATH: 'build_staging',
+      NODE_ENV: 'production',
     });
     if (!fs.existsSync(path.join(stagingBuildDir, 'index.html'))) {
       throw new Error('Staged frontend build did not produce index.html.');
     }
-    if (fs.existsSync(finalBuildDir)) {
-      fs.renameSync(finalBuildDir, backupBuildDir);
-    }
-    fs.renameSync(stagingBuildDir, finalBuildDir);
-    fs.rmSync(backupBuildDir, { recursive: true, force: true });
+    swapDirectory(stagingBuildDir, finalBuildDir, backupBuildDir);
   } finally {
     try {
       if (fs.existsSync(stagingBuildDir)) {
@@ -141,6 +173,29 @@ function buildFrontend() {
   }
 }
 
+function buildFrontendDirect() {
+  ensureFrontendDependencies();
+  syncFirebaseConfig();
+  console.log('Building frontend bundle...');
+  runReactScripts('build', {
+    CI: 'false',
+    BROWSER: 'none',
+    GENERATE_SOURCEMAP: 'false',
+    NODE_ENV: 'production',
+  });
+}
+
+function startFrontendDev() {
+  ensureFrontendDependencies();
+  syncFirebaseConfig();
+  runReactScripts('start', {
+    PORT: process.env.PORT || '3000',
+    HOST: process.env.HOST || '0.0.0.0',
+    BROWSER: process.env.BROWSER || 'none',
+    NODE_ENV: 'development',
+  });
+}
+
 const mode = process.argv[2] || 'build';
 if (mode === 'sync-config') {
   syncFirebaseConfig();
@@ -148,7 +203,11 @@ if (mode === 'sync-config') {
   ensureFrontendDependencies();
 } else if (mode === 'build') {
   buildFrontend();
+} else if (mode === 'react-build') {
+  buildFrontendDirect();
+} else if (mode === 'start') {
+  startFrontendDev();
 } else {
-  console.error(`Unknown mode "${mode}". Expected "sync-config", "install", or "build".`);
+  console.error(`Unknown mode "${mode}". Expected "sync-config", "install", "build", "react-build", or "start".`);
   process.exit(1);
 }
